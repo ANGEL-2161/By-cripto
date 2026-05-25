@@ -87,10 +87,11 @@ function PairHeader({ pair }) {
 function ChartPane({ pair, tf, setTf, chartType }) {
   const canvasRef = useRefT(null);
   const [indicators, setIndicators] = useStateT({ vol: true, ma: false });
+  const [orderResult, setOrderResult] = useStateT(null);
   const ordersRef = useRefT(null);
   if (!ordersRef.current || ordersRef.current._sym !== pair.sym) {
     const entry = +(pair.basePrice * 0.988).toFixed(2);
-    ordersRef.current = { _sym: pair.sym, entry, tp: +(entry * 1.035).toFixed(2), sl: +(entry * 0.982).toFixed(2) };
+    ordersRef.current = { _sym: pair.sym, entry, tp: +(entry * 1.035).toFixed(2), sl: +(entry * 0.982).toFixed(2), active: true };
   }
 
   useEffectT(() => {
@@ -98,16 +99,37 @@ function ChartPane({ pair, tf, setTf, chartType }) {
     const render = () => {
       if (canvasRef.current) {
         const candles = VData.activeCandles();
-        const { entry, tp, sl } = ordersRef.current;
-        VChart.draw(canvasRef.current, candles, { type: chartType, orders: { entry, tp, sl } });
+        const o = ordersRef.current;
+        const orders = o.active ? { entry: o.entry, tp: o.tp, sl: o.sl } : null;
+        VChart.draw(canvasRef.current, candles, { type: chartType, orders });
       }
     };
     render();
-    const off = VData.subscribe("tick", () => {
+    const off = VData.subscribe("tick", ({ pair: p }) => {
+      const o = ordersRef.current;
+      if (o.active && o._sym === p.sym) {
+        const candles = VData.activeCandles();
+        const last = candles[candles.length - 1];
+        let hit = null;
+        if (last.h >= o.tp) {
+          hit = { type: "ganancia", pct: +((o.tp - o.entry) / o.entry * 100).toFixed(2) };
+        } else if (last.l <= o.sl) {
+          hit = { type: "perdida", pct: +((o.sl - o.entry) / o.entry * 100).toFixed(2) };
+        }
+        if (hit) {
+          o.active = false;
+          setOrderResult(hit);
+          setTimeout(() => {
+            const cp = VData.activePair();
+            const newEntry = +(cp.price * 0.998).toFixed(2);
+            ordersRef.current = { _sym: cp.sym, entry: newEntry, tp: +(newEntry * 1.035).toFixed(2), sl: +(newEntry * 0.982).toFixed(2), active: true };
+            setOrderResult(null);
+          }, 4000);
+        }
+      }
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(render);
     });
-    // Repaint on tweaks change (palette/theme)
     const onTweak = () => render();
     window.addEventListener("tweakchange", onTweak);
     const onResize = () => render();
@@ -136,8 +158,21 @@ function ChartPane({ pair, tf, setTf, chartType }) {
           <button className="chip">+ Indicador</button>
         </div>
       </div>
-      <div className="chart-canvas-wrap">
+      <div className="chart-canvas-wrap" style={{ position: "relative" }}>
         <canvas ref={canvasRef} className="chart" />
+        {orderResult && (
+          <div style={{
+            position: "absolute", top: 12, right: 70,
+            background: orderResult.type === "ganancia" ? "#2e7d32" : "#c62828",
+            color: "#fff", padding: "6px 16px", borderRadius: 4,
+            fontFamily: "var(--font-mono, monospace)", fontWeight: 700, fontSize: 13,
+            letterSpacing: "0.05em", boxShadow: "0 2px 12px rgba(0,0,0,0.5)",
+          }}>
+            {orderResult.type === "ganancia"
+              ? `ORDEN CERRADA · GANANCIA +${orderResult.pct}%`
+              : `ORDEN CERRADA · PÉRDIDA ${orderResult.pct}%`}
+          </div>
+        )}
       </div>
     </div>
   );
