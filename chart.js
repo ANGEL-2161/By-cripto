@@ -57,6 +57,10 @@
     min -= range * 0.05;
     max += range * 0.05;
 
+    // Manual range override (Y zoom)
+    if (opts.yMin != null) min = opts.yMin;
+    if (opts.yMax != null) max = opts.yMax;
+
     const x = (i) => padL + (i / (candles.length - 1)) * plotW;
     const y = (price) => padT + (1 - (price - min) / (max - min)) * plotH;
     const yVol = (v) => volTop + volH - (v / vMax) * volH;

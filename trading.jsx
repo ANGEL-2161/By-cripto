@@ -87,35 +87,68 @@ function PairHeader({ pair }) {
 function ChartPane({ pair, tf, setTf, chartType }) {
   const canvasRef = useRefT(null);
   const [indicators, setIndicators] = useStateT({ vol: true, ma: false });
+  const [maximized, setMaximized] = useStateT(false);
   const [orderResult, setOrderResult] = useStateT(null);
+
   const ordersRef = useRefT(null);
   if (!ordersRef.current || ordersRef.current._sym !== pair.sym) {
     const entry = +(pair.basePrice * 0.988).toFixed(2);
     ordersRef.current = { _sym: pair.sym, entry, tp: +(entry * 1.035).toFixed(2), sl: +(entry * 0.982).toFixed(2), active: true };
   }
 
+  const viewRef = useRefT({ candleCount: null, offset: 0, yMin: null, yMax: null });
+  const dragRef = useRefT(null);
+  const renderRef = useRefT(null);
+
+  // Reset view when pair or timeframe changes
+  useEffectT(() => {
+    viewRef.current = { candleCount: null, offset: 0, yMin: null, yMax: null };
+  }, [pair.sym, tf]);
+
   useEffectT(() => {
     let raf;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
     const render = () => {
-      if (canvasRef.current) {
-        const candles = VData.activeCandles();
-        const o = ordersRef.current;
-        const orders = o.active ? { entry: o.entry, tp: o.tp, sl: o.sl } : null;
-        VChart.draw(canvasRef.current, candles, { type: chartType, orders });
-      }
+      if (!canvasRef.current) return;
+      const candles = VData.activeCandles();
+      const v = viewRef.current;
+      const count = v.candleCount != null ? v.candleCount : candles.length;
+      const offset = Math.max(0, v.offset);
+      const end = Math.max(1, candles.length - offset);
+      const start = Math.max(0, end - count);
+      const visible = candles.slice(start, end);
+      const o = ordersRef.current;
+      VChart.draw(canvasRef.current, visible, {
+        type: chartType,
+        orders: o.active ? { entry: o.entry, tp: o.tp, sl: o.sl } : null,
+        yMin: v.yMin,
+        yMax: v.yMax,
+      });
     };
+    renderRef.current = render;
     render();
+
+    const onWheel = (e) => {
+      e.preventDefault();
+      const candles = VData.activeCandles();
+      const v = viewRef.current;
+      const currentCount = v.candleCount != null ? v.candleCount : candles.length;
+      const factor = e.deltaY > 0 ? 1.15 : 0.87;
+      viewRef.current = { ...v, candleCount: Math.round(Math.min(candles.length, Math.max(10, currentCount * factor))) };
+      render();
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+
     const off = VData.subscribe("tick", ({ pair: p }) => {
       const o = ordersRef.current;
       if (o.active && o._sym === p.sym) {
         const candles = VData.activeCandles();
         const last = candles[candles.length - 1];
         let hit = null;
-        if (last.h >= o.tp) {
-          hit = { type: "ganancia", pct: +((o.tp - o.entry) / o.entry * 100).toFixed(2) };
-        } else if (last.l <= o.sl) {
-          hit = { type: "perdida", pct: +((o.sl - o.entry) / o.entry * 100).toFixed(2) };
-        }
+        if (last.h >= o.tp) hit = { type: "ganancia", pct: +((o.tp - o.entry) / o.entry * 100).toFixed(2) };
+        else if (last.l <= o.sl) hit = { type: "perdida", pct: +((o.sl - o.entry) / o.entry * 100).toFixed(2) };
         if (hit) {
           o.active = false;
           setOrderResult(hit);
@@ -130,15 +163,100 @@ function ChartPane({ pair, tf, setTf, chartType }) {
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(render);
     });
+
     const onTweak = () => render();
-    window.addEventListener("tweakchange", onTweak);
     const onResize = () => render();
+    window.addEventListener("tweakchange", onTweak);
     window.addEventListener("resize", onResize);
-    return () => { off(); cancelAnimationFrame(raf); window.removeEventListener("tweakchange", onTweak); window.removeEventListener("resize", onResize); };
+    return () => {
+      off();
+      cancelAnimationFrame(raf);
+      canvas.removeEventListener("wheel", onWheel);
+      window.removeEventListener("tweakchange", onTweak);
+      window.removeEventListener("resize", onResize);
+    };
   }, [pair.sym, tf, chartType]);
 
+  // Escape to exit maximize
+  useEffectT(() => {
+    if (!maximized) return;
+    const onKey = (e) => { if (e.key === "Escape") setMaximized(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [maximized]);
+
+  const onMouseDown = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const plotW = rect.width - 56;
+    const candles = VData.activeCandles();
+    const v = viewRef.current;
+    const count = v.candleCount != null ? v.candleCount : candles.length;
+
+    if (x > plotW) {
+      // Y-axis drag → zoom price range
+      const offset = Math.max(0, v.offset);
+      const end = Math.max(1, candles.length - offset);
+      const visible = candles.slice(Math.max(0, end - count), end);
+      let lo = Infinity, hi = -Infinity;
+      visible.forEach(c => { if (c.l < lo) lo = c.l; if (c.h > hi) hi = c.h; });
+      const r = hi - lo || 1;
+      const yMin = v.yMin != null ? v.yMin : lo - r * 0.05;
+      const yMax = v.yMax != null ? v.yMax : hi + r * 0.05;
+      dragRef.current = { type: "yzoom", startY: e.clientY, yCenter: (yMin + yMax) / 2, yRange: yMax - yMin };
+      canvas.style.cursor = "ns-resize";
+    } else {
+      // Chart area drag → pan X
+      dragRef.current = { type: "pan", startX: e.clientX, startOffset: v.offset, count, total: candles.length };
+      canvas.style.cursor = "grabbing";
+    }
+  };
+
+  const onMouseMove = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const d = dragRef.current;
+    const v = viewRef.current;
+
+    if (!d) {
+      const rect = canvas.getBoundingClientRect();
+      canvas.style.cursor = e.clientX - rect.left > rect.width - 56 ? "ns-resize" : "crosshair";
+      return;
+    }
+
+    if (d.type === "pan") {
+      const rect = canvas.getBoundingClientRect();
+      const plotW = rect.width - 56;
+      const dx = e.clientX - d.startX;
+      const pxPerCandle = plotW / Math.max(1, d.count);
+      const delta = -Math.round(dx / pxPerCandle);
+      viewRef.current = { ...v, offset: Math.max(0, Math.min(Math.max(0, d.total - d.count), d.startOffset + delta)) };
+    } else if (d.type === "yzoom") {
+      const factor = Math.exp((e.clientY - d.startY) * 0.008);
+      const half = (d.yRange * factor) / 2;
+      viewRef.current = { ...v, yMin: d.yCenter - half, yMax: d.yCenter + half };
+    }
+    if (renderRef.current) renderRef.current();
+  };
+
+  const onMouseUp = () => {
+    dragRef.current = null;
+    if (canvasRef.current) canvasRef.current.style.cursor = "crosshair";
+  };
+
+  const onDblClick = () => {
+    viewRef.current = { candleCount: null, offset: 0, yMin: null, yMax: null };
+    if (renderRef.current) renderRef.current();
+  };
+
+  const maxStyle = maximized
+    ? { position: "fixed", inset: 0, zIndex: 1000, borderRadius: 0, margin: 0 }
+    : {};
+
   return (
-    <div className="card chart-pane">
+    <div className="card chart-pane" style={maxStyle}>
       <div className="card-h">
         <div className="chart-toolbar">
           <span className="card-t" style={{ color: "var(--accent)" }}>
@@ -156,10 +274,22 @@ function ChartPane({ pair, tf, setTf, chartType }) {
           <button className="chip" data-active={indicators.vol} onClick={() => setIndicators((s) => ({ ...s, vol: !s.vol }))}>Volumen</button>
           <button className="chip">RSI</button>
           <button className="chip">+ Indicador</button>
+          <button className="chip" onClick={() => setMaximized(m => !m)} title={maximized ? "Restaurar · Esc" : "Maximizar"}>
+            {maximized ? "⊟" : "⊞"}
+          </button>
         </div>
       </div>
-      <div className="chart-canvas-wrap" style={{ position: "relative" }}>
-        <canvas ref={canvasRef} className="chart" />
+      <div className="chart-canvas-wrap" style={{ position: "relative", flex: "1 1 0", minHeight: 0 }}>
+        <canvas
+          ref={canvasRef}
+          className="chart"
+          style={{ cursor: "crosshair" }}
+          onMouseDown={onMouseDown}
+          onMouseMove={onMouseMove}
+          onMouseUp={onMouseUp}
+          onMouseLeave={onMouseUp}
+          onDoubleClick={onDblClick}
+        />
         {orderResult && (
           <div style={{
             position: "absolute", top: 12, right: 70,
