@@ -113,11 +113,7 @@
     activeTf: "1H",
     book: buildBook(4004.06),
     fills: [],
-    openOrders: [
-      { id: "ord-12482", side: "buy", type: "limit", pair: "ETH/USDT", price: 3920, size: 0.42, filled: 0, t: Date.now() - 8000 },
-      { id: "ord-12480", side: "sell", type: "limit", pair: "ETH/USDT", price: 4180, size: 1.2, filled: 0.3, t: Date.now() - 142000 },
-      { id: "ord-12476", side: "buy", type: "limit", pair: "BTC/USDT", price: 95800, size: 0.085, filled: 0, t: Date.now() - 280000 },
-    ],
+    openOrders: [],
     history: [
       { type: "BUY", asset: "2.4 ETH", state: "SIGNED", hash: "0xA45...E91", t: Date.now() - 60000 },
       { type: "SWAP", asset: "8,000 NXP a USDT", state: "ANTI-DUP OK", hash: "0x91B...13A", t: Date.now() - 180000 },
