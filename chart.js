@@ -196,6 +196,83 @@
       ctx.fill();
     }
 
+    // ── Order markers (entry / TP / SL) ──
+    if (opts.orders) {
+      const { entry, tp, sl } = opts.orders;
+      const mFont = `700 10px ${cssVar("--font-mono") || "monospace"}`;
+      const labW = padR - 6;
+
+      const drawLine = (price, lineColor, bgColor, label) => {
+        if (price == null) return;
+        const py = y(price);
+        if (py < padT - 1 || py > padT + plotH + 1) return;
+
+        ctx.save();
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 4]);
+        ctx.globalAlpha = 0.85;
+        ctx.beginPath();
+        ctx.moveTo(padL, py);
+        ctx.lineTo(padL + plotW, py);
+        ctx.stroke();
+        ctx.restore();
+
+        ctx.font = mFont;
+        const tw = ctx.measureText(label).width;
+        ctx.fillStyle = bgColor;
+        ctx.fillRect(padL + 6, py - 9, tw + 12, 18);
+        ctx.fillStyle = "#fff";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, padL + 12, py);
+
+        ctx.fillStyle = bgColor;
+        ctx.fillRect(padL + plotW + 2, py - 9, labW, 18);
+        ctx.fillText(formatAxis(price), padL + plotW + 8, py);
+      };
+
+      drawLine(sl, "#f44336", "#c62828", "SL");
+      drawLine(tp, "#4caf50", "#2e7d32", "TP");
+
+      if (entry != null) {
+        const py = y(entry);
+        if (py >= padT - 1 && py <= padT + plotH + 1) {
+          ctx.save();
+          ctx.strokeStyle = "#9e9e9e";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([5, 4]);
+          ctx.globalAlpha = 0.7;
+          ctx.beginPath();
+          ctx.moveTo(padL, py);
+          ctx.lineTo(padL + plotW, py);
+          ctx.stroke();
+          ctx.restore();
+
+          ctx.fillStyle = "#fff";
+          ctx.strokeStyle = "#111";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(padL + plotW * 0.65, py, 5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.font = mFont;
+          const tw = ctx.measureText("COMPRA").width;
+          ctx.fillStyle = "#37474f";
+          ctx.fillRect(padL + 6, py - 9, tw + 12, 18);
+          ctx.fillStyle = "#fff";
+          ctx.textAlign = "left";
+          ctx.textBaseline = "middle";
+          ctx.fillText("COMPRA", padL + 12, py);
+
+          ctx.fillStyle = "#37474f";
+          ctx.fillRect(padL + plotW + 2, py - 9, labW, 18);
+          ctx.fillText(formatAxis(entry), padL + plotW + 8, py);
+        }
+      }
+    }
+
     // ── Last price label (right axis) ──
     const last = candles[candles.length - 1];
     const lastUp = last.c >= last.o;

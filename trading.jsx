@@ -87,13 +87,19 @@ function PairHeader({ pair }) {
 function ChartPane({ pair, tf, setTf, chartType }) {
   const canvasRef = useRefT(null);
   const [indicators, setIndicators] = useStateT({ vol: true, ma: false });
+  const ordersRef = useRefT(null);
+  if (!ordersRef.current || ordersRef.current._sym !== pair.sym) {
+    const entry = +(pair.basePrice * 0.988).toFixed(2);
+    ordersRef.current = { _sym: pair.sym, entry, tp: +(entry * 1.035).toFixed(2), sl: +(entry * 0.982).toFixed(2) };
+  }
 
   useEffectT(() => {
     let raf;
     const render = () => {
       if (canvasRef.current) {
         const candles = VData.activeCandles();
-        VChart.draw(canvasRef.current, candles, { type: chartType });
+        const { entry, tp, sl } = ordersRef.current;
+        VChart.draw(canvasRef.current, candles, { type: chartType, orders: { entry, tp, sl } });
       }
     };
     render();
