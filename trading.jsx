@@ -9,6 +9,7 @@ function TradingScreen({ chartType }) {
   const [book, setBook] = useStateT(VData.market.book);
   const [fills, setFills] = useStateT([...VData.market.fills]);
   const [bottomTab, setBottomTab] = useStateT("orders");
+  const [openOrders, setOpenOrders] = useStateT([...VData.market.openOrders]);
 
   useEffectT(() => {
     const offTick = VData.subscribe("tick", ({ pair }) => setPair({ ...pair }));
@@ -26,8 +27,8 @@ function TradingScreen({ chartType }) {
     <div className="trading">
       <PairHeader pair={pair} />
       <ChartPane pair={pair} tf={tf} setTf={setTimeframe} chartType={chartType} />
-      <BookForm pair={pair} book={book} />
-      <BottomPane tab={bottomTab} setTab={setBottomTab} fills={fills} />
+      <BookForm pair={pair} book={book} openOrders={openOrders} setOpenOrders={setOpenOrders} />
+      <BottomPane tab={bottomTab} setTab={setBottomTab} fills={fills} openOrders={openOrders} setOpenOrders={setOpenOrders} />
     </div>
   );
 }
@@ -309,7 +310,7 @@ function ChartPane({ pair, tf, setTf, chartType }) {
 }
 
 // ── Order book + Order form ─────────────────────────────
-function BookForm({ pair, book }) {
+function BookForm({ pair, book, openOrders, setOpenOrders }) {
   return (
     <div className="bookform">
       <div className="card book">
@@ -362,12 +363,12 @@ function BookForm({ pair, book }) {
         </div>
       </div>
 
-      <OrderForm pair={pair} />
+      <OrderForm pair={pair} openOrders={openOrders} setOpenOrders={setOpenOrders} />
     </div>
   );
 }
 
-function OrderForm({ pair }) {
+function OrderForm({ pair, openOrders, setOpenOrders }) {
   const [side, setSide] = useStateT("buy");
   const [type, setType] = useStateT("limit");
   const [price, setPrice] = useStateT(pair.price.toFixed(2));
@@ -440,7 +441,15 @@ function OrderForm({ pair }) {
           <span className="v">0.10% · {VData.fmt.size(total * 0.001)} {pair.quote}</span>
         </div>
 
-        <button className={"btn block lg " + (side === "buy" ? "btn-pos" : "btn-neg")} style={{ marginTop: 4 }}>
+        <button className={"btn block lg " + (side === "buy" ? "btn-pos" : "btn-neg")} style={{ marginTop: 4 }}
+          onClick={() => {
+            const sz = Number(size);
+            if (!sz) return;
+            const px = type === "market" ? pair.price : (Number(price) || pair.price);
+            const newOrder = { id: "ord-" + Date.now(), side, type, pair: `${pair.sym}/${pair.quote}`, price: px, size: sz, filled: 0, t: Date.now() };
+            setOpenOrders([...openOrders, newOrder]);
+            setSize(""); setPct(null);
+          }}>
           {side === "buy" ? "Comprar" : "Vender"} {pair.sym}
         </button>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--text-mute)", justifyContent: "center" }}>
@@ -453,12 +462,14 @@ function OrderForm({ pair }) {
 }
 
 // ── Bottom pane (Open orders / Fills / Watchlist) ───────
-function BottomPane({ tab, setTab, fills }) {
+function BottomPane({ tab, setTab, fills, openOrders, setOpenOrders }) {
   return (
     <div className="card bottom-pane">
       <div className="card-h">
         <div className="tabs">
-          <button data-active={tab === "orders"} onClick={() => setTab("orders")}>Órdenes abiertas · 3</button>
+          <button data-active={tab === "orders"} onClick={() => setTab("orders")}>
+            Órdenes abiertas{openOrders.length > 0 ? ` · ${openOrders.length}` : ""}
+          </button>
           <button data-active={tab === "fills"} onClick={() => setTab("fills")}>Ejecuciones</button>
           <button data-active={tab === "watch"} onClick={() => setTab("watch")}>Watchlist</button>
           <button data-active={tab === "history"} onClick={() => setTab("history")}>Historial</button>
@@ -469,7 +480,7 @@ function BottomPane({ tab, setTab, fills }) {
         </div>
       </div>
       <div className="scroll-y" style={{ flex: 1 }}>
-        {tab === "orders" && <OpenOrdersTab />}
+        {tab === "orders" && <OpenOrdersTab orders={openOrders} setOrders={setOpenOrders} />}
         {tab === "fills" && <FillsTab fills={fills} />}
         {tab === "watch" && <WatchlistTab />}
         {tab === "history" && <HistoryTab />}
@@ -478,8 +489,7 @@ function BottomPane({ tab, setTab, fills }) {
   );
 }
 
-function OpenOrdersTab() {
-  const [orders, setOrders] = useStateT(VData.market.openOrders);
+function OpenOrdersTab({ orders, setOrders }) {
   return (
     <div className="tbl" style={{ gridTemplateColumns: "1fr" }}>
       <div className="tbl-h" style={{ gridTemplateColumns: "100px 100px 80px 90px 1fr 1fr 1fr 1fr 60px" }}>
