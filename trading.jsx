@@ -26,7 +26,7 @@ function TradingScreen({ chartType }) {
   return (
     <div className="trading">
       <PairHeader pair={pair} />
-      <ChartPane pair={pair} tf={tf} setTf={setTimeframe} chartType={chartType} />
+      <ChartPane pair={pair} tf={tf} setTf={setTimeframe} chartType={chartType} openOrders={openOrders} />
       <BookForm pair={pair} book={book} openOrders={openOrders} setOpenOrders={setOpenOrders} setBottomTab={setBottomTab} />
       <BottomPane tab={bottomTab} setTab={setBottomTab} fills={fills} openOrders={openOrders} setOpenOrders={setOpenOrders} />
     </div>
@@ -85,20 +85,15 @@ function PairHeader({ pair }) {
 }
 
 // ── Chart pane ──────────────────────────────────────────
-function ChartPane({ pair, tf, setTf, chartType }) {
+function ChartPane({ pair, tf, setTf, chartType, openOrders }) {
   const canvasRef = useRefT(null);
   const volCanvasRef = useRefT(null);
   const [indicators, setIndicators] = useStateT({ vol: true, ma: false });
   const indicatorsRef = useRefT(indicators);
   indicatorsRef.current = indicators;
+  const openOrdersRef = useRefT(openOrders);
+  openOrdersRef.current = openOrders;
   const [maximized, setMaximized] = useStateT(false);
-  const [orderResult, setOrderResult] = useStateT(null);
-
-  const ordersRef = useRefT(null);
-  if (!ordersRef.current || ordersRef.current._sym !== pair.sym) {
-    const entry = +(pair.basePrice * 0.988).toFixed(2);
-    ordersRef.current = { _sym: pair.sym, entry, tp: +(entry * 1.035).toFixed(2), sl: +(entry * 0.982).toFixed(2), active: true };
-  }
 
   const viewRef = useRefT({ candleCount: null, offset: 0, yMin: null, yMax: null });
   const dragRef = useRefT(null);
@@ -123,15 +118,23 @@ function ChartPane({ pair, tf, setTf, chartType }) {
       const end = Math.max(1, candles.length - offset);
       const start = Math.max(0, end - count);
       const visible = candles.slice(start, end);
-      const o = ordersRef.current;
+      const orders = openOrdersRef.current;
+      let orderLines = null;
+      if (orders.length > 0) {
+        const first = orders[0];
+        const entry = first.price;
+        const isBuy = first.side === "buy";
+        orderLines = {
+          entry,
+          tp: +(entry * (isBuy ? 1.03 : 0.97)).toFixed(2),
+          sl: +(entry * (isBuy ? 0.97 : 1.03)).toFixed(2),
+        };
+      }
 
-      // Always keep active order prices within the visible Y range.
-      // Case A — auto-range (no manual yzoom): build range from candles + orders.
-      // Case B — manual range (after yzoom drag): expand if any order falls outside.
       let yMin = v.yMin;
       let yMax = v.yMax;
-      if (o.active && visible.length) {
-        const orderPrices = [o.entry, o.tp, o.sl].filter(p => p != null);
+      if (orderLines && visible.length) {
+        const orderPrices = [orderLines.entry, orderLines.tp, orderLines.sl];
         if (yMin == null && yMax == null) {
           let lo = Math.min(...orderPrices);
           let hi = Math.max(...orderPrices);
@@ -150,7 +153,7 @@ function ChartPane({ pair, tf, setTf, chartType }) {
 
       VChart.draw(canvasRef.current, visible, {
         type: chartType,
-        orders: o.active ? { entry: o.entry, tp: o.tp, sl: o.sl } : null,
+        orders: orderLines,
         yMin,
         yMax,
         showVol: false,
@@ -173,25 +176,7 @@ function ChartPane({ pair, tf, setTf, chartType }) {
     };
     canvas.addEventListener("wheel", onWheel, { passive: false });
 
-    const off = VData.subscribe("tick", ({ pair: p }) => {
-      const o = ordersRef.current;
-      if (o.active && o._sym === p.sym) {
-        const candles = VData.activeCandles();
-        const last = candles[candles.length - 1];
-        let hit = null;
-        if (last.h >= o.tp) hit = { type: "ganancia", pct: +((o.tp - o.entry) / o.entry * 100).toFixed(2) };
-        else if (last.l <= o.sl) hit = { type: "perdida", pct: +((o.sl - o.entry) / o.entry * 100).toFixed(2) };
-        if (hit) {
-          o.active = false;
-          setOrderResult(hit);
-          setTimeout(() => {
-            const cp = VData.activePair();
-            const newEntry = +(cp.price * 0.998).toFixed(2);
-            ordersRef.current = { _sym: cp.sym, entry: newEntry, tp: +(newEntry * 1.035).toFixed(2), sl: +(newEntry * 0.982).toFixed(2), active: true };
-            setOrderResult(null);
-          }, 4000);
-        }
-      }
+    const off = VData.subscribe("tick", () => {
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(render);
     });
@@ -226,6 +211,11 @@ function ChartPane({ pair, tf, setTf, chartType }) {
     volCanvas.addEventListener("wheel", onWheelVol, { passive: false });
     return () => volCanvas.removeEventListener("wheel", onWheelVol);
   }, [indicators.vol]);
+
+  // Re-draw chart whenever open orders change
+  useEffectT(() => {
+    if (renderRef.current) renderRef.current();
+  }, [openOrders]);
 
   // Escape to exit maximize
   useEffectT(() => {
@@ -349,19 +339,6 @@ function ChartPane({ pair, tf, setTf, chartType }) {
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseUp}
           />
-        )}
-        {orderResult && (
-          <div style={{
-            position: "absolute", top: 12, right: 70,
-            background: orderResult.type === "ganancia" ? "#2e7d32" : "#c62828",
-            color: "#fff", padding: "6px 16px", borderRadius: 4,
-            fontFamily: "var(--font-mono, monospace)", fontWeight: 700, fontSize: 13,
-            letterSpacing: "0.05em", boxShadow: "0 2px 12px rgba(0,0,0,0.5)",
-          }}>
-            {orderResult.type === "ganancia"
-              ? `ORDEN CERRADA · GANANCIA +${orderResult.pct}%`
-              : `ORDEN CERRADA · PÉRDIDA ${orderResult.pct}%`}
-          </div>
         )}
       </div>
     </div>
