@@ -27,7 +27,7 @@ function TradingScreen({ chartType }) {
     <div className="trading">
       <PairHeader pair={pair} />
       <ChartPane pair={pair} tf={tf} setTf={setTimeframe} chartType={chartType} />
-      <BookForm pair={pair} book={book} openOrders={openOrders} setOpenOrders={setOpenOrders} />
+      <BookForm pair={pair} book={book} openOrders={openOrders} setOpenOrders={setOpenOrders} setBottomTab={setBottomTab} />
       <BottomPane tab={bottomTab} setTab={setBottomTab} fills={fills} openOrders={openOrders} setOpenOrders={setOpenOrders} />
     </div>
   );
@@ -87,7 +87,10 @@ function PairHeader({ pair }) {
 // ── Chart pane ──────────────────────────────────────────
 function ChartPane({ pair, tf, setTf, chartType }) {
   const canvasRef = useRefT(null);
+  const volCanvasRef = useRefT(null);
   const [indicators, setIndicators] = useStateT({ vol: true, ma: false });
+  const indicatorsRef = useRefT(indicators);
+  indicatorsRef.current = indicators;
   const [maximized, setMaximized] = useStateT(false);
   const [orderResult, setOrderResult] = useStateT(null);
 
@@ -126,7 +129,11 @@ function ChartPane({ pair, tf, setTf, chartType }) {
         orders: o.active ? { entry: o.entry, tp: o.tp, sl: o.sl } : null,
         yMin: v.yMin,
         yMax: v.yMax,
+        showVol: false,
       });
+      if (indicatorsRef.current.vol && volCanvasRef.current) {
+        VChart.drawVolume(volCanvasRef.current, visible);
+      }
     };
     renderRef.current = render;
     render();
@@ -177,6 +184,24 @@ function ChartPane({ pair, tf, setTf, chartType }) {
       window.removeEventListener("resize", onResize);
     };
   }, [pair.sym, tf, chartType]);
+
+  // Sync vol canvas: redraw on toggle and attach non-passive wheel so it zooms with the main chart
+  useEffectT(() => {
+    if (renderRef.current) renderRef.current();
+    const volCanvas = volCanvasRef.current;
+    if (!volCanvas) return;
+    const onWheelVol = (e) => {
+      e.preventDefault();
+      const candles = VData.activeCandles();
+      const v = viewRef.current;
+      const currentCount = v.candleCount != null ? v.candleCount : candles.length;
+      const factor = e.deltaY > 0 ? 1.15 : 0.87;
+      viewRef.current = { ...v, candleCount: Math.round(Math.min(candles.length, Math.max(10, currentCount * factor))) };
+      if (renderRef.current) renderRef.current();
+    };
+    volCanvas.addEventListener("wheel", onWheelVol, { passive: false });
+    return () => volCanvas.removeEventListener("wheel", onWheelVol);
+  }, [indicators.vol]);
 
   // Escape to exit maximize
   useEffectT(() => {
@@ -280,17 +305,27 @@ function ChartPane({ pair, tf, setTf, chartType }) {
           </button>
         </div>
       </div>
-      <div className="chart-canvas-wrap" style={{ position: "relative", flex: "1 1 0", minHeight: 0 }}>
+      <div className="chart-canvas-wrap" style={{ position: "relative", flex: "1 1 0", minHeight: 0, display: "flex", flexDirection: "column" }}>
         <canvas
           ref={canvasRef}
           className="chart"
-          style={{ cursor: "crosshair" }}
+          style={{ flex: "1 1 0", minHeight: 0, height: 0, cursor: "crosshair" }}
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
           onMouseLeave={onMouseUp}
           onDoubleClick={onDblClick}
         />
+        {indicators.vol && (
+          <canvas
+            ref={volCanvasRef}
+            style={{ flexShrink: 0, height: 64, width: "100%", display: "block", cursor: "crosshair" }}
+            onMouseDown={onMouseDown}
+            onMouseMove={onMouseMove}
+            onMouseUp={onMouseUp}
+            onMouseLeave={onMouseUp}
+          />
+        )}
         {orderResult && (
           <div style={{
             position: "absolute", top: 12, right: 70,
@@ -310,7 +345,7 @@ function ChartPane({ pair, tf, setTf, chartType }) {
 }
 
 // ── Order book + Order form ─────────────────────────────
-function BookForm({ pair, book, openOrders, setOpenOrders }) {
+function BookForm({ pair, book, openOrders, setOpenOrders, setBottomTab }) {
   return (
     <div className="bookform">
       <div className="card book">
@@ -363,12 +398,12 @@ function BookForm({ pair, book, openOrders, setOpenOrders }) {
         </div>
       </div>
 
-      <OrderForm pair={pair} openOrders={openOrders} setOpenOrders={setOpenOrders} />
+      <OrderForm pair={pair} setOpenOrders={setOpenOrders} setBottomTab={setBottomTab} />
     </div>
   );
 }
 
-function OrderForm({ pair, openOrders, setOpenOrders }) {
+function OrderForm({ pair, setOpenOrders, setBottomTab }) {
   const [side, setSide] = useStateT("buy");
   const [type, setType] = useStateT("limit");
   const [price, setPrice] = useStateT(pair.price.toFixed(2));
@@ -442,12 +477,14 @@ function OrderForm({ pair, openOrders, setOpenOrders }) {
         </div>
 
         <button className={"btn block lg " + (side === "buy" ? "btn-pos" : "btn-neg")} style={{ marginTop: 4 }}
+          disabled={!Number(size)}
           onClick={() => {
             const sz = Number(size);
             if (!sz) return;
             const px = type === "market" ? pair.price : (Number(price) || pair.price);
             const newOrder = { id: "ord-" + Date.now(), side, type, pair: `${pair.sym}/${pair.quote}`, price: px, size: sz, filled: 0, t: Date.now() };
-            setOpenOrders([...openOrders, newOrder]);
+            setOpenOrders((prev) => [...prev, newOrder]);
+            setBottomTab("orders");
             setSize(""); setPct(null);
           }}>
           {side === "buy" ? "Comprar" : "Vender"} {pair.sym}

@@ -1,6 +1,33 @@
 // app.jsx — Vértice Exchange OS · Main app
 const { useState: useAS, useEffect: useAE, useMemo: useAM } = React;
 
+function MobileNav({ active, onNavigate }) {
+  const items = [
+    { id: "trading",     label: "Trading",  icon: I.trade     },
+    { id: "mercados",    label: "Mercados", icon: I.market    },
+    { id: "indicadores", label: "Indicad.", icon: I.indicator },
+    { id: "pnl",         label: "P&L",      icon: I.pnl       },
+    { id: "paper",       label: "Paper",    icon: I.paper     },
+    { id: "noticias",    label: "Noticias", icon: I.news      },
+    { id: "admin",       label: "Admin",    icon: I.admin     },
+  ];
+  return (
+    <nav className="mobile-nav">
+      {items.map((it) => (
+        <button
+          key={it.id}
+          className="mobile-nav-item"
+          data-active={active === it.id}
+          onClick={() => onNavigate(it.id)}
+        >
+          {it.icon}
+          <span>{it.label}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "tema": "oscuro",
   "paleta": "mineral",
@@ -9,11 +36,13 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "densidad": "normal"
 }/*EDITMODE-END*/;
 
+const ROUTES = ["trading", "mercados", "indicadores", "pnl", "paper", "noticias", "admin"];
+
 function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [route, setRoute] = useAS(() => {
     const h = (location.hash || "").replace(/^#/, "");
-    return ["trading", "mercados", "wallet", "factory", "blockchain", "admin"].includes(h) ? h : "trading";
+    return ROUTES.includes(h) ? h : "trading";
   });
   const [assets, setAssets] = useAS([...VData.assets]);
   const [toast, setToast] = useAS(null);
@@ -37,7 +66,7 @@ function App() {
   useAE(() => {
     const h = (e) => {
       const r = (location.hash || "").replace(/^#/, "");
-      if (["trading", "mercados", "wallet", "factory", "blockchain", "admin"].includes(r)) setRoute(r);
+      if (ROUTES.includes(r)) setRoute(r);
     };
     window.addEventListener("hashchange", h);
     return () => window.removeEventListener("hashchange", h);
@@ -65,13 +94,16 @@ function App() {
       <Sidebar active={route} onNavigate={navigate} />
       <Topbar walletValue={totalWallet} />
       <main className="main">
-        {route === "trading" && <TradingScreen chartType={t.grafico} />}
-        {route === "mercados" && <MercadosScreen />}
-        {route === "wallet" && <WalletScreen />}
-        {route === "factory" && <FactoryScreen />}
-        {route === "blockchain" && <BlockchainScreen />}
-        {route === "admin" && <AdminScreen />}
+        {route === "trading"     && <TradingScreen chartType={t.grafico} />}
+        {route === "mercados"    && <MercadosScreen />}
+        {route === "indicadores" && <IndicadoresScreen />}
+        {route === "pnl"         && <PnlScreen />}
+        {route === "paper"       && <PaperScreen />}
+        {route === "noticias"    && <NoticiasScreen />}
+        {route === "admin"       && <AdminScreen />}
       </main>
+
+      <MobileNav active={route} onNavigate={navigate} />
 
       {/* Toast */}
       {toast && (
@@ -124,12 +156,13 @@ function App() {
         <TweakSection label="Navegación rápida" />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
           {[
-            ["trading", "Trading"],
-            ["mercados", "Mercados"],
-            ["wallet", "Wallet"],
-            ["factory", "Crear"],
-            ["blockchain", "Blockchain"],
-            ["admin", "Admin"],
+            ["trading",     "Trading"],
+            ["mercados",    "Mercados"],
+            ["indicadores", "Indicadores"],
+            ["pnl",         "P&L"],
+            ["paper",       "Paper"],
+            ["noticias",    "Noticias"],
+            ["admin",       "Admin"],
           ].map(([id, label]) => (
             <TweakButton key={id} label={label} secondary={route !== id} onClick={() => navigate(id)} />
           ))}

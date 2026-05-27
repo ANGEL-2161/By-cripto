@@ -84,17 +84,43 @@ const I = {
       <path d="M7.5 1 L3 8 H7 L5.5 13 L11 6 H7 Z" />
     </svg>
   ),
+  indicator: (
+    <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <path d="M2 11 C4 11 4 5 6 5 C8 5 8 9 10 9 C12 9 12 3 14 3" />
+      <line x1="2" y1="14" x2="14" y2="14" strokeWidth="1" opacity="0.4" />
+    </svg>
+  ),
+  pnl: (
+    <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 13 L6 8 L9 10 L13 4" />
+      <path d="M10 4 H13 V7" />
+      <line x1="2" y1="13" x2="14" y2="13" strokeWidth="1" opacity="0.4" />
+    </svg>
+  ),
+  paper: (
+    <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="2" width="10" height="12" rx="1.5" />
+      <path d="M6 6 H10 M6 9 H10 M6 12 H8" />
+    </svg>
+  ),
+  news: (
+    <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="12" height="10" rx="1.5" />
+      <path d="M5 6 H11 M5 9 H9" />
+    </svg>
+  ),
 };
 
 // ── Sidebar ──────────────────────────────────────────────
 function Sidebar({ active, onNavigate }) {
   const items = [
-    { id: "trading", label: "Trading", icon: I.trade },
-    { id: "mercados", label: "Mercados", icon: I.market },
-    { id: "wallet", label: "Wallet Digital", icon: I.wallet },
-    { id: "factory", label: "Crear Moneda", icon: I.coin },
-    { id: "blockchain", label: "Blockchain Interna", icon: I.chain },
-    { id: "admin", label: "Administración", icon: I.admin },
+    { id: "trading",     label: "Trading",       icon: I.trade },
+    { id: "mercados",    label: "Mercados",       icon: I.market },
+    { id: "indicadores", label: "Indicadores",    icon: I.indicator },
+    { id: "pnl",         label: "P&L / Historial", icon: I.pnl },
+    { id: "paper",       label: "Paper Trading",  icon: I.paper },
+    { id: "noticias",    label: "Noticias",       icon: I.news },
+    { id: "admin",       label: "Administración", icon: I.admin },
   ];
   return (
     <aside className="sidebar">
@@ -168,6 +194,10 @@ function Topbar({ walletValue, onSearch }) {
 
   return (
     <header className="topbar">
+      <div className="topbar-brand">
+        <div className="brand-mark">V</div>
+        <span className="topbar-brand-name">Vértice</span>
+      </div>
       <div className="search">
         {I.search}
         <input ref={inputRef} placeholder="Buscar mercado, token o hash…" onChange={(e) => onSearch?.(e.target.value)} />

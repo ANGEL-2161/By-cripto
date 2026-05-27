@@ -36,13 +36,14 @@
     const padL = 0;
     const padR = 56;
     const padT = 8;
-    const padB = 38; // volume + time axis
+    const showVol = opts.showVol !== false;
+    const padB = showVol ? 38 : 26;
 
     const plotW = w - padL - padR;
-    const plotH = h - padT - padB - 50; // 50px for volume bars at bottom
+    const plotH = h - padT - padB - (showVol ? 50 : 0);
     const volH = 36;
     const volTop = padT + plotH + 8;
-    const axisY = volTop + volH + 6;
+    const axisY = showVol ? (volTop + volH + 6) : (padT + plotH + 8);
 
     // Find min/max
     let min = Infinity, max = -Infinity;
@@ -99,15 +100,53 @@
     }
 
     // ── Volume bars (bottom strip) ──
-    candles.forEach((c, i) => {
-      const cw = Math.max(1.5, plotW / candles.length * 0.7);
-      const px = x(i) - cw / 2;
-      const py = yVol(c.v);
-      ctx.fillStyle = c.c >= c.o ? colorUp : colorDown;
-      ctx.globalAlpha = 0.4;
-      ctx.fillRect(px, py, cw, volTop + volH - py);
-    });
-    ctx.globalAlpha = 1;
+    if (showVol) {
+      candles.forEach((c, i) => {
+        const cw = Math.max(1.5, plotW / candles.length * 0.7);
+        const px = x(i) - cw / 2;
+        const py = yVol(c.v);
+        ctx.fillStyle = c.c >= c.o ? colorUp : colorDown;
+        ctx.globalAlpha = 0.4;
+        ctx.fillRect(px, py, cw, volTop + volH - py);
+      });
+      ctx.globalAlpha = 1;
+    }
+
+    // ── Bollinger Bands overlay ──
+    if (opts.bb && opts.bb.length) {
+      const bands = opts.bb;
+      ctx.save();
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+
+      ["u", "m", "l"].forEach((key, ki) => {
+        ctx.strokeStyle = ki === 1 ? colorAccent + "99" : colorAccent + "55";
+        ctx.beginPath();
+        let first = true;
+        bands.forEach((b, i) => {
+          if (b == null) return;
+          const px = x(i); const py = y(b[key]);
+          if (first) { ctx.moveTo(px, py); first = false; }
+          else ctx.lineTo(px, py);
+        });
+        ctx.stroke();
+      });
+
+      // fill between upper and lower
+      const validBands = bands.map((b, i) => (b ? { i, b } : null)).filter(Boolean);
+      if (validBands.length) {
+        ctx.beginPath();
+        validBands.forEach(({ i, b }, idx) => {
+          if (idx === 0) ctx.moveTo(x(i), y(b.u));
+          else ctx.lineTo(x(i), y(b.u));
+        });
+        [...validBands].reverse().forEach(({ i, b }) => ctx.lineTo(x(i), y(b.l)));
+        ctx.closePath();
+        ctx.fillStyle = colorAccent + "12";
+        ctx.fill();
+      }
+      ctx.restore();
+    }
 
     // ── Plot type ──
     if (type === "velas") {
@@ -305,10 +344,210 @@
     }
 
     // VOL label
+    if (showVol) {
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillStyle = colorText;
+      ctx.fillText("VOL", padL + 4, volTop - 2);
+    }
+  }
+
+  function drawVolume(canvas, candles) {
+    if (!candles || !candles.length) return;
+    const { ctx, w, h } = devicePixel(canvas);
+    ctx.clearRect(0, 0, w, h);
+
+    const fontMono = `11px ${cssVar("--font-mono") || "monospace"}`;
+    const colorText = cssVar("--text-mute") || "#999";
+    const colorGrid = cssVar("--grid") || "#222";
+    const colorUp = cssVar("--positive") || "#4caf50";
+    const colorDown = cssVar("--negative") || "#f44";
+
+    // Use same padL/padR as main chart so bars align pixel-perfect
+    const padL = 0, padR = 56, padT = 6, padB = 4;
+    const plotW = w - padL - padR;
+    const plotH = h - padT - padB;
+
+    let vMax = 0;
+    candles.forEach(c => { if (c.v > vMax) vMax = c.v; });
+    if (!vMax) return;
+
+    const N = candles.length;
+    const cw = Math.max(1.5, plotW / N * 0.7);
+    const x = (i) => padL + (i / Math.max(1, N - 1)) * plotW;
+
+    // Separator line at top
+    ctx.strokeStyle = colorGrid;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(0, 0.5);
+    ctx.lineTo(w, 0.5);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    candles.forEach((c, i) => {
+      const px = x(i);
+      const barH = Math.max(1, (c.v / vMax) * plotH);
+      ctx.fillStyle = c.c >= c.o ? colorUp : colorDown;
+      ctx.globalAlpha = 0.5;
+      ctx.fillRect(px - cw / 2, padT + plotH - barH, cw, barH);
+    });
+    ctx.globalAlpha = 1;
+
+    ctx.font = fontMono;
+    ctx.fillStyle = colorText;
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
+    ctx.fillText("VOL", 4, padT);
+  }
+
+  function drawRSI(canvas, rsiValues) {
+    if (!rsiValues || !rsiValues.length) return;
+    const { ctx, w, h } = devicePixel(canvas);
+    ctx.clearRect(0, 0, w, h);
+
+    const fontMono = `10px ${cssVar("--font-mono") || "monospace"}`;
+    const colorText = cssVar("--text-mute") || "#999";
+    const colorGrid = cssVar("--grid") || "#222";
+    const colorUp = cssVar("--positive") || "#4caf50";
+    const colorDown = cssVar("--negative") || "#f44";
+    const colorAccent = cssVar("--accent") || "#0af";
+
+    const padL = 0, padR = 56, padT = 6, padB = 14;
+    const plotW = w - padL - padR;
+    const plotH = h - padT - padB;
+    const N = rsiValues.length;
+    const x = (i) => padL + (i / Math.max(1, N - 1)) * plotW;
+    const y = (v) => padT + (1 - (v - 0) / 100) * plotH;
+
+    // separator + levels
+    ctx.strokeStyle = colorGrid;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.6;
+    ctx.beginPath(); ctx.moveTo(0, 0.5); ctx.lineTo(w, 0.5); ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    [30, 50, 70].forEach((lvl) => {
+      const py = y(lvl);
+      ctx.strokeStyle = lvl === 50 ? colorGrid : (lvl === 70 ? colorDown + "66" : colorUp + "66");
+      ctx.lineWidth = 1;
+      ctx.setLineDash(lvl === 50 ? [3, 3] : []);
+      ctx.globalAlpha = 0.5;
+      ctx.beginPath(); ctx.moveTo(padL, py); ctx.lineTo(padL + plotW, py); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      ctx.font = fontMono;
+      ctx.fillStyle = colorText;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(lvl), padL + plotW + 6, py);
+    });
+
+    // RSI line
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    let first = true;
+    rsiValues.forEach((v, i) => {
+      if (v == null) return;
+      const px = x(i); const py = y(v);
+      if (first) { ctx.moveTo(px, py); first = false; }
+      else ctx.lineTo(px, py);
+    });
+    ctx.strokeStyle = colorAccent;
+    ctx.stroke();
+
+    ctx.font = fontMono;
     ctx.fillStyle = colorText;
-    ctx.fillText("VOL", padL + 4, volTop - 2);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText("RSI(14)", 4, padT);
+  }
+
+  function drawMACD(canvas, macdLine, sigLine, histLine) {
+    if (!macdLine || !macdLine.length) return;
+    const { ctx, w, h } = devicePixel(canvas);
+    ctx.clearRect(0, 0, w, h);
+
+    const fontMono = `10px ${cssVar("--font-mono") || "monospace"}`;
+    const colorText = cssVar("--text-mute") || "#999";
+    const colorGrid = cssVar("--grid") || "#222";
+    const colorUp = cssVar("--positive") || "#4caf50";
+    const colorDown = cssVar("--negative") || "#f44";
+    const colorAccent = cssVar("--accent") || "#0af";
+
+    const padL = 0, padR = 56, padT = 6, padB = 14;
+    const plotW = w - padL - padR;
+    const plotH = h - padT - padB;
+    const N = macdLine.length;
+    const x = (i) => padL + (i / Math.max(1, N - 1)) * plotW;
+
+    const allVals = [...macdLine, ...sigLine, ...histLine].filter(v => v != null);
+    if (!allVals.length) return;
+    const vMin = Math.min(...allVals);
+    const vMax = Math.max(...allVals);
+    const vRange = (vMax - vMin) || 1;
+    const y = (v) => padT + (1 - (v - vMin) / vRange) * plotH;
+    const yZero = y(0);
+
+    // separator
+    ctx.strokeStyle = colorGrid;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.6;
+    ctx.beginPath(); ctx.moveTo(0, 0.5); ctx.lineTo(w, 0.5); ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // zero line
+    ctx.strokeStyle = colorGrid;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath(); ctx.moveTo(padL, yZero); ctx.lineTo(padL + plotW, yZero); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+
+    // histogram bars
+    const cw = Math.max(1.5, plotW / N * 0.7);
+    histLine.forEach((v, i) => {
+      if (v == null) return;
+      const px = x(i);
+      const barY = v >= 0 ? y(v) : yZero;
+      const barH = Math.abs(y(v) - yZero);
+      ctx.fillStyle = v >= 0 ? colorUp : colorDown;
+      ctx.globalAlpha = 0.45;
+      ctx.fillRect(px - cw / 2, barY, cw, barH);
+    });
+    ctx.globalAlpha = 1;
+
+    // MACD line
+    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = colorAccent;
+    ctx.beginPath();
+    let first = true;
+    macdLine.forEach((v, i) => {
+      if (v == null) return;
+      if (first) { ctx.moveTo(x(i), y(v)); first = false; }
+      else ctx.lineTo(x(i), y(v));
+    });
+    ctx.stroke();
+
+    // Signal line
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "#ff9800";
+    ctx.beginPath();
+    first = true;
+    sigLine.forEach((v, i) => {
+      if (v == null) return;
+      if (first) { ctx.moveTo(x(i), y(v)); first = false; }
+      else ctx.lineTo(x(i), y(v));
+    });
+    ctx.stroke();
+
+    ctx.font = fontMono;
+    ctx.fillStyle = colorText;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText("MACD", 4, padT);
   }
 
   function formatAxis(v) {
@@ -318,5 +557,5 @@
     return v.toFixed(6);
   }
 
-  window.VChart = { draw };
+  window.VChart = { draw, drawVolume, drawRSI, drawMACD };
 })();
