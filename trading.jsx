@@ -26,7 +26,7 @@ function TradingScreen({ chartType }) {
   return (
     <div className="trading">
       <PairHeader pair={pair} />
-      <ChartPane pair={pair} tf={tf} setTf={setTimeframe} chartType={chartType} openOrders={openOrders} />
+      <ChartPane pair={pair} tf={tf} setTf={setTimeframe} chartType={chartType} openOrders={openOrders} setOpenOrders={setOpenOrders} />
       <BookForm pair={pair} book={book} openOrders={openOrders} setOpenOrders={setOpenOrders} setBottomTab={setBottomTab} />
       <BottomPane tab={bottomTab} setTab={setBottomTab} fills={fills} openOrders={openOrders} setOpenOrders={setOpenOrders} />
     </div>
@@ -85,7 +85,7 @@ function PairHeader({ pair }) {
 }
 
 // ── Chart pane ──────────────────────────────────────────
-function ChartPane({ pair, tf, setTf, chartType, openOrders }) {
+function ChartPane({ pair, tf, setTf, chartType, openOrders, setOpenOrders }) {
   const canvasRef = useRefT(null);
   const volCanvasRef = useRefT(null);
   const [indicators, setIndicators] = useStateT({ vol: true, ma: false });
@@ -94,14 +94,17 @@ function ChartPane({ pair, tf, setTf, chartType, openOrders }) {
   const openOrdersRef = useRefT(openOrders);
   openOrdersRef.current = openOrders;
   const [maximized, setMaximized] = useStateT(false);
+  const [orderResult, setOrderResult] = useStateT(null);
+  const hitOrdersRef = useRefT(new Set());
 
   const viewRef = useRefT({ candleCount: null, offset: 0, yMin: null, yMax: null });
   const dragRef = useRefT(null);
   const renderRef = useRefT(null);
 
-  // Reset view when pair or timeframe changes
+  // Reset view and hit-set when pair or timeframe changes
   useEffectT(() => {
     viewRef.current = { candleCount: null, offset: 0, yMin: null, yMax: null };
+    hitOrdersRef.current = new Set();
   }, [pair.sym, tf]);
 
   useEffectT(() => {
@@ -177,6 +180,34 @@ function ChartPane({ pair, tf, setTf, chartType, openOrders }) {
     canvas.addEventListener("wheel", onWheel, { passive: false });
 
     const off = VData.subscribe("tick", () => {
+      const candles = VData.activeCandles();
+      const last = candles[candles.length - 1];
+      const orders = openOrdersRef.current;
+
+      orders.forEach((order) => {
+        if (hitOrdersRef.current.has(order.id)) return;
+        const entry = order.price;
+        const isBuy = order.side === "buy";
+        const tp = +(entry * (isBuy ? 1.03 : 0.97)).toFixed(2);
+        const sl = +(entry * (isBuy ? 0.97 : 1.03)).toFixed(2);
+
+        let hit = null;
+        if (isBuy) {
+          if (last.h >= tp) hit = { type: "ganancia", pct: +((tp - entry) / entry * 100).toFixed(2), orderId: order.id };
+          else if (last.l <= sl) hit = { type: "perdida", pct: +((entry - sl) / entry * 100).toFixed(2), orderId: order.id };
+        } else {
+          if (last.l <= tp) hit = { type: "ganancia", pct: +((entry - tp) / entry * 100).toFixed(2), orderId: order.id };
+          else if (last.h >= sl) hit = { type: "perdida", pct: +((sl - entry) / entry * 100).toFixed(2), orderId: order.id };
+        }
+
+        if (hit) {
+          hitOrdersRef.current.add(hit.orderId);
+          setOpenOrders((prev) => prev.filter((o) => o.id !== hit.orderId));
+          setOrderResult(hit);
+          setTimeout(() => setOrderResult(null), 4000);
+        }
+      });
+
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(render);
     });
@@ -339,6 +370,19 @@ function ChartPane({ pair, tf, setTf, chartType, openOrders }) {
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseUp}
           />
+        )}
+        {orderResult && (
+          <div style={{
+            position: "absolute", top: 12, right: 70, pointerEvents: "none",
+            background: orderResult.type === "ganancia" ? "#2e7d32" : "#c62828",
+            color: "#fff", padding: "6px 16px", borderRadius: 4,
+            fontFamily: "var(--font-mono, monospace)", fontWeight: 700, fontSize: 13,
+            letterSpacing: "0.05em", boxShadow: "0 2px 12px rgba(0,0,0,0.5)",
+          }}>
+            {orderResult.type === "ganancia"
+              ? `ORDEN CERRADA · GANANCIA +${orderResult.pct}%`
+              : `ORDEN CERRADA · PÉRDIDA −${orderResult.pct}%`}
+          </div>
         )}
       </div>
     </div>
