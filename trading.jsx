@@ -184,8 +184,12 @@ function ChartPane({ pair, tf, setTf, chartType, openOrders, setOpenOrders }) {
       const last = candles[candles.length - 1];
       const orders = openOrdersRef.current;
 
+      const currentPrice = last.c;
       orders.forEach((order) => {
         if (hitOrdersRef.current.has(order.id)) return;
+        // Only start checking after 3 seconds — prevents the current candle's
+        // accumulated range from triggering a false close right after creation.
+        if (Date.now() - order.t < 3000) return;
         const entry = order.price;
         const isBuy = order.side === "buy";
         const tp = +(entry * (isBuy ? 1.03 : 0.97)).toFixed(2);
@@ -193,11 +197,11 @@ function ChartPane({ pair, tf, setTf, chartType, openOrders, setOpenOrders }) {
 
         let hit = null;
         if (isBuy) {
-          if (last.h >= tp) hit = { type: "ganancia", pct: +((tp - entry) / entry * 100).toFixed(2), orderId: order.id };
-          else if (last.l <= sl) hit = { type: "perdida", pct: +((entry - sl) / entry * 100).toFixed(2), orderId: order.id };
+          if (currentPrice >= tp) hit = { type: "ganancia", pct: +((tp - entry) / entry * 100).toFixed(2), orderId: order.id };
+          else if (currentPrice <= sl) hit = { type: "perdida", pct: +((entry - sl) / entry * 100).toFixed(2), orderId: order.id };
         } else {
-          if (last.l <= tp) hit = { type: "ganancia", pct: +((entry - tp) / entry * 100).toFixed(2), orderId: order.id };
-          else if (last.h >= sl) hit = { type: "perdida", pct: +((sl - entry) / entry * 100).toFixed(2), orderId: order.id };
+          if (currentPrice <= tp) hit = { type: "ganancia", pct: +((entry - tp) / entry * 100).toFixed(2), orderId: order.id };
+          else if (currentPrice >= sl) hit = { type: "perdida", pct: +((sl - entry) / entry * 100).toFixed(2), orderId: order.id };
         }
 
         if (hit) {
