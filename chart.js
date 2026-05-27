@@ -58,6 +58,21 @@
     min -= range * 0.05;
     max += range * 0.05;
 
+    // Expand auto-range to always include order levels (entry, TP, SL)
+    // so lines stay visible during scroll and zoom
+    if (opts.orders && opts.yMin == null && opts.yMax == null) {
+      const { entry, tp, sl } = opts.orders;
+      [entry, tp, sl].forEach(p => {
+        if (p != null) {
+          if (p < min) min = p;
+          if (p > max) max = p;
+        }
+      });
+      const expandedRange = max - min || 1;
+      min -= expandedRange * 0.02;
+      max += expandedRange * 0.02;
+    }
+
     // Manual range override (Y zoom)
     if (opts.yMin != null) min = opts.yMin;
     if (opts.yMax != null) max = opts.yMax;
