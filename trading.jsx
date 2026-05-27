@@ -124,11 +124,27 @@ function ChartPane({ pair, tf, setTf, chartType }) {
       const start = Math.max(0, end - count);
       const visible = candles.slice(start, end);
       const o = ordersRef.current;
+
+      // Compute Y range that always includes active order prices so lines
+      // stay anchored to their price through scroll and zoom.
+      let yMin = v.yMin;
+      let yMax = v.yMax;
+      if (o.active && yMin == null && yMax == null && visible.length) {
+        let lo = Infinity, hi = -Infinity;
+        visible.forEach(c => { if (c.l < lo) lo = c.l; if (c.h > hi) hi = c.h; });
+        [o.entry, o.tp, o.sl].forEach(p => {
+          if (p != null) { if (p < lo) lo = p; if (p > hi) hi = p; }
+        });
+        const r = hi - lo || 1;
+        yMin = lo - r * 0.07;
+        yMax = hi + r * 0.07;
+      }
+
       VChart.draw(canvasRef.current, visible, {
         type: chartType,
         orders: o.active ? { entry: o.entry, tp: o.tp, sl: o.sl } : null,
-        yMin: v.yMin,
-        yMax: v.yMax,
+        yMin,
+        yMax,
         showVol: false,
       });
       if (indicatorsRef.current.vol && volCanvasRef.current) {
