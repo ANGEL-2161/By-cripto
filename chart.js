@@ -263,8 +263,7 @@
       const drawLine = (price, lineColor, bgColor, label) => {
         if (price == null) return;
         const py = y(price);
-        // clamp to plot area — line is always drawn if price is defined
-        if (py < padT || py > padT + plotH) return;
+        if (py < padT - 2 || py > padT + plotH + 2) return;
 
         ctx.save();
         ctx.strokeStyle = lineColor;
@@ -296,7 +295,7 @@
 
       if (entry != null) {
         const py = y(entry);
-        if (py >= padT - 1 && py <= padT + plotH + 1) {
+        if (py >= padT - 2 && py <= padT + plotH + 2) {
           ctx.save();
           ctx.strokeStyle = "#9e9e9e";
           ctx.lineWidth = 1;

@@ -125,19 +125,27 @@ function ChartPane({ pair, tf, setTf, chartType }) {
       const visible = candles.slice(start, end);
       const o = ordersRef.current;
 
-      // Compute Y range that always includes active order prices so lines
-      // stay anchored to their price through scroll and zoom.
+      // Always keep active order prices within the visible Y range.
+      // Case A — auto-range (no manual yzoom): build range from candles + orders.
+      // Case B — manual range (after yzoom drag): expand if any order falls outside.
       let yMin = v.yMin;
       let yMax = v.yMax;
-      if (o.active && yMin == null && yMax == null && visible.length) {
-        let lo = Infinity, hi = -Infinity;
-        visible.forEach(c => { if (c.l < lo) lo = c.l; if (c.h > hi) hi = c.h; });
-        [o.entry, o.tp, o.sl].forEach(p => {
-          if (p != null) { if (p < lo) lo = p; if (p > hi) hi = p; }
-        });
-        const r = hi - lo || 1;
-        yMin = lo - r * 0.07;
-        yMax = hi + r * 0.07;
+      if (o.active && visible.length) {
+        const orderPrices = [o.entry, o.tp, o.sl].filter(p => p != null);
+        if (yMin == null && yMax == null) {
+          let lo = Math.min(...orderPrices);
+          let hi = Math.max(...orderPrices);
+          visible.forEach(c => { if (c.l < lo) lo = c.l; if (c.h > hi) hi = c.h; });
+          const r = hi - lo || 1;
+          yMin = lo - r * 0.08;
+          yMax = hi + r * 0.08;
+        } else {
+          const pad = (yMax - yMin) * 0.06 || 1;
+          orderPrices.forEach(p => {
+            if (p < yMin) yMin = p - pad;
+            if (p > yMax) yMax = p + pad;
+          });
+        }
       }
 
       VChart.draw(canvasRef.current, visible, {
