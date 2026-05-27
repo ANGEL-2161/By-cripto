@@ -478,13 +478,13 @@ function OrderForm({ pair, setOpenOrders, setBottomTab }) {
       </div>
       <div className="card-b">
         <div className="order-side">
-          <button data-active={side === "buy" ? "buy" : null} onClick={() => setSide("buy")}>Comprar</button>
-          <button data-active={side === "sell" ? "sell" : null} onClick={() => setSide("sell")}>Vender</button>
+          <button type="button" data-active={side === "buy" ? "buy" : null} onClick={() => setSide("buy")}>Comprar</button>
+          <button type="button" data-active={side === "sell" ? "sell" : null} onClick={() => setSide("sell")}>Vender</button>
         </div>
 
         <div className="order-type">
           {["limit", "market", "stop"].map((t) => (
-            <button key={t} data-active={type === t} onClick={() => setType(t)}>
+            <button type="button" key={t} data-active={type === t} onClick={() => setType(t)}>
               {t === "limit" ? "Límite" : t === "market" ? "Mercado" : "Stop"}
             </button>
           ))}
@@ -508,7 +508,7 @@ function OrderForm({ pair, setOpenOrders, setBottomTab }) {
 
         <div className="order-pct">
           {[25, 50, 75, 100].map((p) => (
-            <button key={p} data-active={pct === p} onClick={() => applyPct(p)}>{p}%</button>
+            <button type="button" key={p} data-active={pct === p} onClick={() => applyPct(p)}>{p}%</button>
           ))}
         </div>
 
