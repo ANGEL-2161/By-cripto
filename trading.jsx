@@ -88,13 +88,18 @@ function PairHeader({ pair }) {
 function ChartPane({ pair, tf, setTf, chartType, openOrders, setOpenOrders }) {
   const canvasRef = useRefT(null);
   const volCanvasRef = useRefT(null);
-  const [indicators, setIndicators] = useStateT({ vol: true, ma: false });
+  const [indicators, setIndicators] = useStateT({ vol: true, ma: false, rsi: false, macd: false, bb: false, stoch: false });
   const indicatorsRef = useRefT(indicators);
   indicatorsRef.current = indicators;
   const openOrdersRef = useRefT(openOrders);
   openOrdersRef.current = openOrders;
   const [maximized, setMaximized] = useStateT(false);
   const [orderResult, setOrderResult] = useStateT(null);
+  const [showIndMenu, setShowIndMenu] = useStateT(false);
+  const [orderOverrides, setOrderOverrides] = useStateT({});
+  const orderOverridesRef = useRefT(orderOverrides);
+  orderOverridesRef.current = orderOverrides;
+  const lastLayoutRef = useRefT({ plotH: 0, yMin: 0, yMax: 1, padT: 8, padL: 0, plotW: 0 });
   const hitOrdersRef = useRefT(new Set());
 
   const viewRef = useRefT({ candleCount: null, offset: 0, yMin: null, yMax: null });
@@ -125,12 +130,13 @@ function ChartPane({ pair, tf, setTf, chartType, openOrders, setOpenOrders }) {
       let orderLines = null;
       if (orders.length > 0) {
         const first = orders[0];
-        const entry = first.price;
+        const entry = first.price; // always fixed — never modified by drag
         const isBuy = first.side === "buy";
+        const ov = orderOverridesRef.current[first.id] || {};
         orderLines = {
           entry,
-          tp: +(entry * (isBuy ? 1.03 : 0.97)).toFixed(2),
-          sl: +(entry * (isBuy ? 0.97 : 1.03)).toFixed(2),
+          tp: ov.tp != null ? ov.tp : +(entry * (isBuy ? 1.03 : 0.97)).toFixed(2),
+          sl: ov.sl != null ? ov.sl : +(entry * (isBuy ? 0.97 : 1.03)).toFixed(2),
         };
       }
 
@@ -154,13 +160,20 @@ function ChartPane({ pair, tf, setTf, chartType, openOrders, setOpenOrders }) {
         }
       }
 
-      VChart.draw(canvasRef.current, visible, {
+      const ind = indicatorsRef.current;
+      const layout = VChart.draw(canvasRef.current, visible, {
         type: chartType,
         orders: orderLines,
         yMin,
         yMax,
         showVol: false,
+        ma: ind.ma,
+        rsi: ind.rsi,
+        macd: ind.macd,
+        bb: ind.bb,
+        stoch: ind.stoch,
       });
+      if (layout) lastLayoutRef.current = layout;
       if (indicatorsRef.current.vol && volCanvasRef.current) {
         VChart.drawVolume(volCanvasRef.current, visible);
       }
@@ -229,6 +242,11 @@ function ChartPane({ pair, tf, setTf, chartType, openOrders, setOpenOrders }) {
     };
   }, [pair.sym, tf, chartType]);
 
+  // Redraw when any non-vol indicator toggles
+  useEffectT(() => {
+    if (renderRef.current) renderRef.current();
+  }, [indicators.ma, indicators.rsi, indicators.macd, indicators.bb, indicators.stoch]);
+
   // Sync vol canvas: redraw on toggle and attach non-passive wheel so it zooms with the main chart
   useEffectT(() => {
     if (renderRef.current) renderRef.current();
@@ -265,7 +283,39 @@ function ChartPane({ pair, tf, setTf, chartType, openOrders, setOpenOrders }) {
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
     const plotW = rect.width - 56;
+
+    // TP / SL drag hit-test (only in chart area, not Y axis)
+    if (x < plotW) {
+      const orders = openOrdersRef.current;
+      if (orders.length > 0) {
+        const { plotH, yMin, yMax, padT: cPadT } = lastLayoutRef.current;
+        if (plotH > 0 && yMax !== yMin) {
+          const yOfPrice = (p) => cPadT + (1 - (p - yMin) / (yMax - yMin)) * plotH;
+          const order = orders[0];
+          const entry = order.price;
+          const isBuy = order.side === "buy";
+          const ov = orderOverridesRef.current[order.id] || {};
+          const tp = ov.tp != null ? ov.tp : +(entry * (isBuy ? 1.03 : 0.97)).toFixed(2);
+          const sl = ov.sl != null ? ov.sl : +(entry * (isBuy ? 0.97 : 1.03)).toFixed(2);
+          const HIT = 8;
+          if (Math.abs(mouseY - yOfPrice(tp)) < HIT) {
+            dragRef.current = { type: "dragTP", orderId: order.id };
+            canvas.style.cursor = "ns-resize";
+            e.preventDefault();
+            return;
+          }
+          if (Math.abs(mouseY - yOfPrice(sl)) < HIT) {
+            dragRef.current = { type: "dragSL", orderId: order.id };
+            canvas.style.cursor = "ns-resize";
+            e.preventDefault();
+            return;
+          }
+        }
+      }
+    }
+
     const candles = VData.activeCandles();
     const v = viewRef.current;
     const count = v.candleCount != null ? v.candleCount : candles.length;
@@ -301,6 +351,24 @@ function ChartPane({ pair, tf, setTf, chartType, openOrders, setOpenOrders }) {
       return;
     }
 
+    if (d.type === "dragTP" || d.type === "dragSL") {
+      const rect = canvas.getBoundingClientRect();
+      const mouseY = e.clientY - rect.top;
+      const { plotH, yMin, yMax, padT: cPadT } = lastLayoutRef.current;
+      if (plotH > 0 && yMax !== yMin) {
+        const newPrice = yMin + (1 - (mouseY - cPadT) / plotH) * (yMax - yMin);
+        const field = d.type === "dragTP" ? "tp" : "sl";
+        const updated = {
+          ...orderOverridesRef.current,
+          [d.orderId]: { ...orderOverridesRef.current[d.orderId], [field]: +newPrice.toFixed(2) },
+        };
+        orderOverridesRef.current = updated;
+        if (renderRef.current) renderRef.current();
+        setOrderOverrides(updated);
+      }
+      return;
+    }
+
     if (d.type === "pan") {
       const rect = canvas.getBoundingClientRect();
       const plotW = rect.width - 56;
@@ -332,9 +400,9 @@ function ChartPane({ pair, tf, setTf, chartType, openOrders, setOpenOrders }) {
 
   return (
     <div className="card chart-pane" style={maxStyle}>
-      <div className="card-h">
+      <div className="card-h" style={{ padding: "4px 10px", minHeight: 0 }}>
         <div className="chart-toolbar">
-          <span className="card-t" style={{ color: "var(--accent)" }}>
+          <span className="card-t" style={{ color: "var(--accent)", fontSize: 11 }}>
             <span className="live-dot" />
             LIVE PAIR
           </span>
@@ -347,8 +415,55 @@ function ChartPane({ pair, tf, setTf, chartType, openOrders, setOpenOrders }) {
         <div className="chart-toolbar">
           <button className="chip" data-active={indicators.ma} onClick={() => setIndicators((s) => ({ ...s, ma: !s.ma }))}>MA(20)</button>
           <button className="chip" data-active={indicators.vol} onClick={() => setIndicators((s) => ({ ...s, vol: !s.vol }))}>Volumen</button>
-          <button className="chip">RSI</button>
-          <button className="chip">+ Indicador</button>
+          <button className="chip" data-active={indicators.rsi} onClick={() => setIndicators((s) => ({ ...s, rsi: !s.rsi }))}>RSI</button>
+          <div style={{ position: "relative" }}>
+            <button
+              className="chip"
+              data-active={indicators.macd || indicators.bb || indicators.stoch}
+              onClick={() => setShowIndMenu(m => !m)}
+            >
+              + Indicador
+            </button>
+            {showIndMenu && (
+              <>
+                <div
+                  style={{ position: "fixed", inset: 0, zIndex: 99 }}
+                  onClick={() => setShowIndMenu(false)}
+                />
+                <div style={{
+                  position: "absolute", top: "100%", right: 0, zIndex: 100,
+                  background: "var(--surface-2, #1a1a1a)", border: "1px solid var(--border-soft, #333)",
+                  borderRadius: 4, minWidth: 190, boxShadow: "0 4px 14px rgba(0,0,0,0.5)",
+                  marginTop: 4,
+                }}>
+                  {[
+                    { key: "macd", label: "MACD" },
+                    { key: "bb", label: "Bandas de Bollinger" },
+                    { key: "stoch", label: "Estocástico" },
+                  ].map(({ key, label }) => (
+                    <div
+                      key={key}
+                      style={{
+                        padding: "8px 14px", cursor: "pointer", fontSize: 12,
+                        display: "flex", alignItems: "center", gap: 8,
+                        color: indicators[key] ? "var(--accent)" : "var(--text-mute, #999)",
+                        background: indicators[key] ? "var(--accent, #0af)18" : "transparent",
+                      }}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        setIndicators(s => ({ ...s, [key]: !s[key] }));
+                      }}
+                    >
+                      <span style={{ width: 10, height: 10, borderRadius: 2,
+                        background: indicators[key] ? "var(--accent)" : "var(--border-soft, #555)",
+                        flexShrink: 0 }} />
+                      {label}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           <button className="chip" onClick={() => setMaximized(m => !m)} title={maximized ? "Restaurar · Esc" : "Maximizar"}>
             {maximized ? "⊟" : "⊞"}
           </button>
